@@ -127,127 +127,28 @@ jobs:
 
     - name: Deploy Application
       run: |
-        # Create deployment script locally
-        cat > deploy.sh << 'EOF'
-        #!/bin/bash
-        set -e
-        echo "Starting deployment..."
-        
-        # Install nginx
-        sudo yum update -y
-        sudo yum install -y nginx
-        
-        # Create simple index page
-        sudo mkdir -p /var/www/html
-        sudo tee /var/www/html/index.html > /dev/null << 'HTML'
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>DevConnector - Infrastructure Deployed!</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
-                .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                h1 { color: #28a745; }
-                .status { background: #d4edda; padding: 20px; border-radius: 5px; margin: 20px 0; border: 1px solid #c3e6cb; }
-                ul { text-align: left; }
-                .footer { margin-top: 30px; color: #666; font-size: 14px; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🚀 DevConnector Infrastructure</h1>
-                <div class="status">
-                    <h2>✅ Successfully Deployed!</h2>
-                    <p>Your AWS infrastructure is fully operational:</p>
-                    <ul>
-                        <li>✅ VPC with public/private subnets</li>
-                        <li>✅ Application Load Balancer</li>
-                        <li>✅ Auto Scaling Group with EC2 instances</li>
-                        <li>✅ RDS PostgreSQL Database</li>
-                        <li>✅ Security Groups and networking</li>
-                        <li>✅ IAM roles and permissions</li>
-                    </ul>
-                    <p><strong>Status:</strong> Ready for application deployment!</p>
-                </div>
-                <div class="footer">
-                    <p>Deployed via GitHub Actions • Terraform • AWS</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        HTML
-        
-        # Start and enable nginx
-        sudo systemctl start nginx
-        sudo systemctl enable nginx
-        
-        # Remove default nginx config
-        sudo rm -f /etc/nginx/conf.d/default.conf
-        
-        # Configure nginx
-        sudo tee /etc/nginx/conf.d/devconnector.conf > /dev/null << 'NGINX'
-        server {
-            listen 80 default_server;
-            server_name _;
-            root /var/www/html;
-            index index.html;
-            
-            location / {
-                try_files $uri $uri/ /index.html;
-            }
-            
-            location /api/ {
-                return 200 '{"status": "API placeholder - infrastructure ready!"}';
-                add_header Content-Type application/json;
-            }
-            
-            location /health {
-                return 200 'OK';
-                add_header Content-Type text/plain;
-            }
-        }
-        NGINX
-        
-        # Test nginx config and restart
-        sudo nginx -t
-        sudo systemctl restart nginx
-        sudo systemctl status nginx
-        
-        echo "✅ Deployment completed successfully!"
-        echo "🌐 Nginx is running and serving content"
-        EOF
-        
-        # Deploy to all instances
         for instance_id in $INSTANCE_IDS; do
           echo "Deploying to instance: $instance_id"
           
-          # Send the deployment script via SSM
+          # Send simple deployment commands via SSM
           aws ssm send-command \
             --instance-ids $instance_id \
             --document-name "AWS-RunShellScript" \
-            --parameters file://deploy-params.json \
+            --parameters 'commands=[
+              "#!/bin/bash",
+              "set -e",
+              "echo Starting deployment...",
+              "sudo yum update -y",
+              "sudo yum install -y nginx",
+              "sudo mkdir -p /var/www/html",
+              "echo \"<!DOCTYPE html><html><head><title>DevConnector Success</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}.container{max-width:600px;margin:0 auto;background:white;padding:40px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1)}h1{color:#28a745}.status{background:#d4edda;padding:20px;border-radius:5px;margin:20px 0;border:1px solid #c3e6cb}</style></head><body><div class=container><h1>🚀 DevConnector</h1><div class=status><h2>✅ Infrastructure Deployed!</h2><p>Your AWS infrastructure is operational!</p><ul><li>✅ VPC with subnets</li><li>✅ Load Balancer</li><li>✅ Auto Scaling Group</li><li>✅ RDS Database</li><li>✅ Security Groups</li></ul></div></div></body></html>\" | sudo tee /var/www/html/index.html",
+              "sudo systemctl start nginx",
+              "sudo systemctl enable nginx",
+              "sudo systemctl status nginx",
+              "echo ✅ Deployment completed successfully!"
+            ]' \
             --output table
         done
-        
-        # Create parameters file for SSM
-        cat > deploy-params.json << 'JSON'
-        {
-          "commands": [
-            "#!/bin/bash",
-            "set -e",
-            "echo 'Starting deployment...'",
-            "sudo yum update -y",
-            "sudo yum install -y nginx",
-            "sudo mkdir -p /var/www/html",
-            "sudo tee /var/www/html/index.html > /dev/null << 'EOF'",
-            "<!DOCTYPE html><html><head><title>DevConnector - Success!</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:50px;background:#f5f5f5}.container{max-width:600px;margin:0 auto;background:white;padding:40px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1)}h1{color:#28a745}.status{background:#d4edda;padding:20px;border-radius:5px;margin:20px 0;border:1px solid #c3e6cb}</style></head><body><div class='container'><h1>🚀 DevConnector</h1><div class='status'><h2>✅ Infrastructure Deployed!</h2><p>Your AWS infrastructure is operational!</p></div></div></body></html>",
-            "EOF",
-            "sudo systemctl start nginx",
-            "sudo systemctl enable nginx",
-            "echo '✅ Deployment completed!'"
-          ]
-        }
-        JSON
 
     - name: Wait for Deployment
       run: |

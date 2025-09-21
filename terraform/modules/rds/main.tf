@@ -11,7 +11,7 @@ resource "aws_db_subnet_group" "main" {
 
 # RDS Parameter Group
 resource "aws_db_parameter_group" "main" {
-  family = "postgres15"
+  family = "postgres17"
   name   = "${var.environment}-db-params"
 
   parameter {

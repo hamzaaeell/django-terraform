@@ -130,10 +130,19 @@ jobs:
     - name: Get Application URL
       working-directory: terraform/environments/dev
       run: |
-        terraform output -json > outputs.json
-        APP_URL=$(cat outputs.json | jq -r '.application_url.value')
+        # Try to get the load balancer DNS name
+        LB_DNS=$(terraform output -raw load_balancer_dns_name 2>/dev/null | head -n1 | tr -d '\n\r' | sed 's/::debug::.*//')
+        
+        # Fallback: get it from AWS CLI if terraform output fails
+        if [ -z "$LB_DNS" ] || [[ "$LB_DNS" == *"debug"* ]]; then
+          echo "Terraform output failed, trying AWS CLI..."
+          LB_DNS=$(aws elbv2 describe-load-balancers --names "dev-devconnector-alb" --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null || echo "")
+        fi
+        
+        APP_URL="http://$LB_DNS"
         echo "APPLICATION_URL=$APP_URL" >> $GITHUB_ENV
         echo "🚀 Application URL: $APP_URL"
+        echo "Load Balancer DNS: $LB_DNS"
 
     - name: Comment PR
       if: github.event_name == 'pull_request'

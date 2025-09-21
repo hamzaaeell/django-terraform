@@ -1,39 +1,15 @@
-import React, { useEffect } from "react";
-import { BrowserRouter as Router, Route, Switch } from "react-router-dom";
-import Navbar from "./components/layout/Navbar";
-import Landing from "./components/layout/Landing";
-import Routes from "./components/routing/Routes";
+import React from 'react';
 
-// Redux
-import { Provider } from "react-redux";
-import store from "./store";
-import { loadUser } from "./actions/auth";
-import setAuthToken from "./utils/setAuthToken";
-
-import "./App.css";
-
-if (localStorage.token) {
-  setAuthToken(localStorage.token);
-}
-
-const App = () => {
-  useEffect(() => {
-    store.dispatch(loadUser());
-  }, []);
-
+function App() {
   return (
-    <Provider store={store}>
-      <Router>
-        <React.Fragment>
-          <Navbar />
-          <Switch>
-            <Route exact path="/" component={Landing} />
-            <Route component={Routes} />
-          </Switch>
-        </React.Fragment>
-      </Router>
-    </Provider>
+    <div className="App">
+      <header className="App-header">
+        <h1>DevConnector</h1>
+        <p>A social network for developers</p>
+        <p>Infrastructure deployed successfully! 🚀</p>
+      </header>
+    </div>
   );
-};
+}
 
 export default App;

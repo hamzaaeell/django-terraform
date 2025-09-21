@@ -16,6 +16,12 @@ on:
       - 'backend/**'
       - 'requirements.txt'
       - 'package.json'
+  workflow_dispatch:  # Allow manual trigger
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'requirements.txt'
+      - 'package.json'
 
 env:
   AWS_REGION: us-east-1

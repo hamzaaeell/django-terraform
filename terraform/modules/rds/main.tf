@@ -12,7 +12,7 @@ resource "aws_db_subnet_group" "main" {
 # RDS Parameter Group
 resource "aws_db_parameter_group" "main" {
   family = "postgres17"
-  name   = "${var.environment}-db-params"
+  name   = "${var.environment}-db-params-v2"
 
   parameter {
     name  = "log_connections"

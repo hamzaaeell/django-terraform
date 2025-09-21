@@ -82,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: development
     needs: terraform-plan
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
     - name: Checkout
@@ -145,7 +145,7 @@ jobs:
     name: Test Deployment
     runs-on: ubuntu-latest
     needs: terraform-apply
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
     - name: Checkout

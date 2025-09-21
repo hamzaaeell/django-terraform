@@ -2,7 +2,7 @@ name: Deploy Application to Development
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ main ]
     paths:
       - 'frontend/**'
       - 'backend/**'
@@ -10,7 +10,7 @@ on:
       - 'package.json'
       - '.github/workflows/deploy-app-dev.yml'
   pull_request:
-    branches: [ develop ]
+    branches: [ main ]
     paths:
       - 'frontend/**'
       - 'backend/**'
@@ -67,7 +67,7 @@ jobs:
       run: npm run build
 
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
         path: |
@@ -78,7 +78,7 @@ jobs:
     name: Deploy to Development Environment
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: development
     
     steps:
@@ -93,7 +93,7 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Download Build Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: build-artifacts
 

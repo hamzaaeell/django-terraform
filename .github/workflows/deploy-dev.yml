@@ -130,7 +130,7 @@ jobs:
     - name: Get Application URL
       working-directory: terraform/environments/dev
       run: |
-        APP_URL=$(terraform output -raw application_url | tr -d '\n\r')
+        APP_URL=$(terraform output -raw application_url 2>/dev/null | tr -d '\n\r' | sed 's/::debug::.*//')
         echo "APPLICATION_URL=$APP_URL" >> $GITHUB_ENV
         echo "🚀 Application URL: $APP_URL"
 

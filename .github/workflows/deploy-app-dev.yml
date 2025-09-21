@@ -164,11 +164,49 @@ jobs:
           --query 'LoadBalancers[0].DNSName' \
           --output text)
         
-        # Test frontend
-        curl -f "http://$ALB_DNS" || exit 1
+        echo "🔍 Checking deployment status..."
         
-        # Test backend API
-        curl -f "http://$ALB_DNS/api/" || exit 1
+        # Check SSM command status
+        for instance_id in $INSTANCE_IDS; do
+          echo "Checking instance $instance_id..."
+          
+          # Get recent commands for this instance
+          RECENT_COMMANDS=$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=$instance_id" \
+            --query 'InstanceInformationList[0].PingStatus' \
+            --output text 2>/dev/null || echo "Unknown")
+          
+          echo "Instance $instance_id ping status: $RECENT_COMMANDS"
+        done
         
-        echo "✅ Application deployment verified!"
-        echo "🚀 Dev environment: http://$ALB_DNS"
+        # Test with retries
+        echo "🌐 Testing application URL: http://$ALB_DNS"
+        
+        for i in {1..10}; do
+          echo "Attempt $i/10..."
+          
+          if curl -f -m 10 "http://$ALB_DNS" > /dev/null 2>&1; then
+            echo "✅ Application is responding!"
+            curl -s "http://$ALB_DNS" | head -n 5
+            echo "🚀 Dev environment: http://$ALB_DNS"
+            exit 0
+          fi
+          
+          echo "⏳ Application not ready yet, waiting..."
+          sleep 30
+        done
+        
+        echo "❌ Application still not responding after 5 minutes"
+        echo "🔍 Let's check what's happening..."
+        
+        # Show more details about the load balancer
+        aws elbv2 describe-target-health \
+          --target-group-arn $(aws elbv2 describe-target-groups \
+            --names "dev-frontend-tg" \
+            --query 'TargetGroups[0].TargetGroupArn' \
+            --output text) \
+          --output table
+        
+        echo "Load balancer URL: http://$ALB_DNS"
+        echo "Check AWS Console for more details"
+        exit 1

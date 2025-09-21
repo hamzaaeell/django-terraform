@@ -1,3 +1,33 @@
+# IAM Role for EC2 instances
+resource "aws_iam_role" "ec2_role" {
+  name = "${var.environment}-devconnector-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# Attach SSM policy for remote deployment
+resource "aws_iam_role_policy_attachment" "ssm_policy" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# Instance profile
+resource "aws_iam_instance_profile" "ec2_profile" {
+  name = "${var.environment}-devconnector-ec2-profile"
+  role = aws_iam_role.ec2_role.name
+}
+
 # Launch Template
 resource "aws_launch_template" "main" {
   name_prefix   = "${var.environment}-devconnector-"
@@ -6,15 +36,41 @@ resource "aws_launch_template" "main" {
   key_name      = var.key_pair_name
 
   vpc_security_group_ids = [var.security_group_id]
+  
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ec2_profile.name
+  }
 
-  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    environment     = var.environment
-    db_endpoint     = var.db_endpoint
-    db_name         = var.db_name
-    db_username     = var.db_username
-    db_password     = var.db_password
-    github_repo_url = var.github_repo_url
-  }))
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    yum update -y
+    yum install -y docker git
+    systemctl start docker
+    systemctl enable docker
+    usermod -a -G docker ec2-user
+    
+    # Install AWS CLI
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    unzip awscliv2.zip
+    ./aws/install
+    
+    # Install SSM agent for remote deployment
+    yum install -y amazon-ssm-agent
+    systemctl start amazon-ssm-agent
+    systemctl enable amazon-ssm-agent
+    
+    # Create app directory
+    mkdir -p /opt/devconnector
+    chown ec2-user:ec2-user /opt/devconnector
+    
+    # Environment variables for later use
+    echo "export ENVIRONMENT=${var.environment}" >> /home/ec2-user/.bashrc
+    echo "export DB_ENDPOINT=${var.db_endpoint}" >> /home/ec2-user/.bashrc
+    echo "export DB_NAME=${var.db_name}" >> /home/ec2-user/.bashrc
+    echo "export DB_USERNAME=${var.db_username}" >> /home/ec2-user/.bashrc
+    echo "export GITHUB_REPO_URL=${var.github_repo_url}" >> /home/ec2-user/.bashrc
+  EOF
+  )
 
   tag_specifications {
     resource_type = "instance"

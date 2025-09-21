@@ -2,13 +2,13 @@ name: Deploy to Development
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ main ]
     paths:
       - 'terraform/modules/**'                    # Shared modules affect all environments
       - 'terraform/environments/dev/**'           # Only dev-specific changes
       - '.github/workflows/deploy-dev.yml'        # Changes to this workflow
   pull_request:
-    branches: [ develop ]
+    branches: [ main ]
     paths:
       - 'terraform/modules/**'
       - 'terraform/environments/dev/**'

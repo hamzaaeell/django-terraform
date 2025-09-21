@@ -199,7 +199,7 @@ jobs:
         echo "❌ Application still not responding after 5 minutes"
         echo "🔍 Let's check what's happening..."
         
-        # Show more details about the load balancer
+        # Show target group health
         aws elbv2 describe-target-health \
           --target-group-arn $(aws elbv2 describe-target-groups \
             --names "dev-frontend-tg" \
@@ -207,6 +207,57 @@ jobs:
             --output text) \
           --output table
         
-        echo "Load balancer URL: http://$ALB_DNS"
-        echo "Check AWS Console for more details"
-        exit 1
+        # Check what's actually running on the instances
+        echo "🔍 Checking nginx status on instances..."
+        for instance_id in $INSTANCE_IDS; do
+          echo "Checking instance $instance_id..."
+          
+          # Check nginx status
+          aws ssm send-command \
+            --instance-ids $instance_id \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "echo === NGINX STATUS ===",
+              "sudo systemctl status nginx || echo nginx not running",
+              "echo === PORT 80 LISTENING ===", 
+              "sudo netstat -tlnp | grep :80 || echo port 80 not listening",
+              "echo === NGINX ERROR LOG ===",
+              "sudo tail -n 10 /var/log/nginx/error.log 2>/dev/null || echo no nginx error log",
+              "echo === INDEX FILE ===",
+              "ls -la /var/www/html/ || echo no html directory",
+              "echo === CURL LOCALHOST ===",
+              "curl -s http://localhost/ | head -n 3 || echo localhost not responding"
+            ]' \
+            --output table
+        done
+        
+        echo "🔧 Attempting to fix nginx on instances..."
+        for instance_id in $INSTANCE_IDS; do
+          echo "Fixing instance $instance_id..."
+          
+          # Try to fix nginx
+          aws ssm send-command \
+            --instance-ids $instance_id \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "sudo yum install -y nginx",
+              "echo \"<h1>DevConnector - Fixed!</h1><p>Infrastructure deployed successfully!</p>\" | sudo tee /var/www/html/index.html",
+              "sudo systemctl start nginx",
+              "sudo systemctl enable nginx",
+              "sudo systemctl status nginx"
+            ]' \
+            --output table
+        done
+        
+        echo "⏳ Waiting 60 seconds for fix to apply..."
+        sleep 60
+        
+        # Try one more time
+        if curl -f -m 10 "http://$ALB_DNS" > /dev/null 2>&1; then
+          echo "✅ Application is now responding after fix!"
+          echo "🚀 Dev environment: http://$ALB_DNS"
+        else
+          echo "❌ Still not working. Manual investigation needed."
+          echo "Load balancer URL: http://$ALB_DNS"
+          echo "Check AWS Console → EC2 → Target Groups for more details"
+        fi

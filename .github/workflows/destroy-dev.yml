@@ -1,0 +1,102 @@
+name: Destroy Development Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: 'Type "DESTROY_DEV_ENVIRONMENT" to confirm destruction'
+        required: true
+        default: ''
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.5.0
+
+jobs:
+  validate-destroy:
+    name: Validate Destruction Request
+    runs-on: ubuntu-latest
+    steps:
+    - name: Validate confirmation
+      run: |
+        if [ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY_DEV_ENVIRONMENT" ]; then
+          echo "❌ Destruction not confirmed. You must type exactly: DESTROY_DEV_ENVIRONMENT"
+          exit 1
+        fi
+        echo "✅ Destruction confirmed"
+
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    environment: development
+    needs: validate-destroy
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Cache Terraform
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          terraform/environments/dev/.terraform
+        key: ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-${{ hashFiles('terraform/environments/dev/**/*.tf') }}
+        restore-keys: |
+          ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-
+
+    - name: Terraform Init
+      working-directory: terraform/environments/dev
+      run: terraform init
+
+    - name: Create Terraform Variables File
+      working-directory: terraform/environments/dev
+      run: |
+        cat > secrets.auto.tfvars << EOF
+        database_password = "${{ secrets.DEV_DATABASE_PASSWORD }}"
+        key_pair_name = "${{ secrets.AWS_KEY_PAIR_NAME }}"
+        github_repo_url = "${{ github.server_url }}/${{ github.repository }}.git"
+        EOF
+
+    - name: Terraform Plan Destroy
+      working-directory: terraform/environments/dev
+      run: terraform plan -destroy -out=destroy.tfplan
+
+    - name: Show Destroy Plan
+      working-directory: terraform/environments/dev
+      run: terraform show destroy.tfplan
+
+    - name: Terraform Destroy
+      working-directory: terraform/environments/dev
+      run: terraform apply destroy.tfplan
+
+    - name: Cleanup State File (Optional)
+      working-directory: terraform/environments/dev
+      run: |
+        echo "🧹 Destruction completed!"
+        echo "📊 Resources destroyed:"
+        echo "- VPC and all subnets"
+        echo "- Load Balancer and Target Groups"
+        echo "- Auto Scaling Group and EC2 instances"
+        echo "- RDS Database"
+        echo "- Security Groups"
+        echo "- IAM Roles and Policies"
+        echo "- S3 state file remains for future deployments"
+
+    - name: Notify Completion
+      run: |
+        echo "🎉 Dev environment successfully destroyed!"
+        echo "💰 This will stop all AWS charges for the dev environment"
+        echo "🔄 You can redeploy anytime by pushing to the develop branch"

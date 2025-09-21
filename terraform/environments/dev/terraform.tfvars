@@ -18,7 +18,7 @@ asg_desired_capacity  = 1
 # Database Configuration
 rds_instance_class     = "db.t3.micro"
 rds_allocated_storage  = 20
-database_password      = "DevConnector2024!"  # Change this to a secure password
+database_password      = "DevConnect2024#Secure"  # AWS RDS compliant password
 
 # Application Configuration
 github_repo_url = "https://github.com/hamzaaeell/django-terraform.git"

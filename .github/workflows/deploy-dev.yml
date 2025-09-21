@@ -1,0 +1,214 @@
+name: Deploy to Development
+
+on:
+  push:
+    branches: [ develop ]
+    paths:
+      - 'terraform/modules/**'                    # Shared modules affect all environments
+      - 'terraform/environments/dev/**'           # Only dev-specific changes
+      - '.github/workflows/deploy-dev.yml'        # Changes to this workflow
+  pull_request:
+    branches: [ develop ]
+    paths:
+      - 'terraform/modules/**'
+      - 'terraform/environments/dev/**'
+      - '.github/workflows/deploy-dev.yml'
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.5.0
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    environment: development
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Cache Terraform
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          terraform/environments/dev/.terraform
+        key: ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-${{ hashFiles('terraform/environments/dev/**/*.tf') }}
+        restore-keys: |
+          ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-
+
+    - name: Terraform Init
+      working-directory: terraform/environments/dev
+      run: terraform init
+
+    - name: Terraform Validate
+      working-directory: terraform/environments/dev
+      run: terraform validate
+
+    - name: Create Terraform Variables File
+      working-directory: terraform/environments/dev
+      run: |
+        cat > secrets.auto.tfvars << EOF
+        database_password = "${{ secrets.DEV_DATABASE_PASSWORD }}"
+        key_pair_name = "${{ secrets.AWS_KEY_PAIR_NAME }}"
+        github_repo_url = "${{ github.server_url }}/${{ github.repository }}.git"
+        EOF
+
+    - name: Terraform Plan
+      working-directory: terraform/environments/dev
+      run: terraform plan -out=tfplan
+
+    - name: Upload Terraform Plan
+      uses: actions/upload-artifact@v3
+      with:
+        name: terraform-plan-dev
+        path: terraform/environments/dev/tfplan
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    environment: development
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Cache Terraform
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          terraform/environments/dev/.terraform
+        key: ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-${{ hashFiles('terraform/environments/dev/**/*.tf') }}
+        restore-keys: |
+          ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-
+
+    - name: Download Terraform Plan
+      uses: actions/download-artifact@v3
+      with:
+        name: terraform-plan-dev
+        path: terraform/environments/dev/
+
+    - name: Terraform Init
+      working-directory: terraform/environments/dev
+      run: terraform init
+
+    - name: Terraform Apply
+      working-directory: terraform/environments/dev
+      run: terraform apply tfplan
+
+    - name: Get Application URL
+      working-directory: terraform/environments/dev
+      run: |
+        echo "APPLICATION_URL=$(terraform output -raw application_url)" >> $GITHUB_ENV
+
+    - name: Comment PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🚀 Development environment deployed successfully!\n\nApplication URL: ${{ env.APPLICATION_URL }}'
+          })
+
+  test-deployment:
+    name: Test Deployment
+    runs-on: ubuntu-latest
+    needs: terraform-apply
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get Application URL
+      working-directory: terraform/environments/dev
+      run: |
+        terraform init
+        echo "APPLICATION_URL=$(terraform output -raw application_url)" >> $GITHUB_ENV
+
+    - name: Wait for Application to be Ready
+      run: |
+        echo "🔄 Waiting for application to be ready..."
+        for i in {1..30}; do
+          if curl -fsS --max-time 10 ${{ env.APPLICATION_URL }} > /dev/null 2>&1; then
+            echo "✅ Frontend is ready!"
+            break
+          fi
+          echo "⏳ Waiting for frontend... (attempt $i/30)"
+          if [ $i -eq 30 ]; then
+            echo "❌ Frontend did not become ready in time"
+            exit 1
+          fi
+          sleep 10
+        done
+
+    - name: Test Application Health
+      run: |
+        echo "🧪 Running comprehensive health checks..."
+        
+        # Test frontend
+        if curl -fsS --max-time 10 ${{ env.APPLICATION_URL }} > /dev/null; then
+          echo "✅ Frontend health check passed"
+        else
+          echo "❌ Frontend health check failed"
+          exit 1
+        fi
+        
+        # Test backend API with retry
+        for i in {1..10}; do
+          if curl -fsS --max-time 10 ${{ env.APPLICATION_URL }}/api/ > /dev/null 2>&1; then
+            echo "✅ Backend API health check passed"
+            break
+          fi
+          echo "⏳ Waiting for backend API... (attempt $i/10)"
+          if [ $i -eq 10 ]; then
+            echo "❌ Backend API health check failed"
+            exit 1
+          fi
+          sleep 5
+        done
+        
+        echo "🎉 All health checks passed!"

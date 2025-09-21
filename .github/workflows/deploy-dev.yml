@@ -110,19 +110,22 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-terraform-${{ env.TERRAFORM_VERSION }}-
 
-    - name: Download Terraform Plan
-      uses: actions/download-artifact@v4
-      with:
-        name: terraform-plan-dev
-        path: terraform/environments/dev/
-
     - name: Terraform Init
       working-directory: terraform/environments/dev
       run: terraform init
 
+    - name: Create Terraform Variables File
+      working-directory: terraform/environments/dev
+      run: |
+        cat > secrets.auto.tfvars << EOF
+        database_password = "${{ secrets.DEV_DATABASE_PASSWORD }}"
+        key_pair_name = "${{ secrets.AWS_KEY_PAIR_NAME }}"
+        github_repo_url = "${{ github.server_url }}/${{ github.repository }}.git"
+        EOF
+
     - name: Terraform Apply
       working-directory: terraform/environments/dev
-      run: terraform apply tfplan
+      run: terraform apply -auto-approve
 
     - name: Get Application URL
       working-directory: terraform/environments/dev
